@@ -405,6 +405,7 @@ int main(int argc, char *argv[])
                     sqd_data, norb, num_elec_a, batch, sqd_data.samples_per_batch * 2,
                     i_recovery
                 );
+                diag_data.bdetfile = diag_data.adetfile;
             }
             // Run SBD to get energy and batch occupancies (interleaved alpha/beta...).
             // Energy goes to logs; occupancies seed the next iteration.

@@ -173,9 +173,9 @@ else()
         ${SQC_ROOT}/lib
         ${SQC_ROOT}/lib64
       )
-      target_link_libraries(c-api-demo PUBLIC qiskit_cpp
-          #"-Wl,-rpath ${SQC_ROOT}/lib -Wl,-rpath ${SQC_ROOT}/lib64" # dll
-          #$ENV{SQC_LIBS}
+      target_link_libraries(c-api-demo PUBLIC
+        "-Wl,-rpath ${SQC_ROOT}/lib -Wl,-rpath ${SQC_ROOT}/lib64" # dll
+        $ENV{SQC_LIBS}
       )
     else()
       target_link_directories(c-api-demo PUBLIC ${QRMI_ROOT}/target/release)
