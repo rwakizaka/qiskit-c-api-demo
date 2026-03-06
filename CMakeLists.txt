@@ -186,13 +186,14 @@ endif()
 target_include_directories(c-api-demo
     PRIVATE
         ${QISKIT_ROOT}/dist/c/include
-        #${QRMI_ROOT}
         ${QISKIT_CPP_ROOT}/src
 )
 
-#if(SQC_ROOT)
-#else()
-#endif()
+if(SQC_ROOT)
+    target_include_directories(c-api-demo PRIVATE ${SQC_ROOT}/include)
+else()
+    target_include_directories(c-api-demo PRIVATE ${QRMI_ROOT}/include)
+endif()
 
 
 target_compile_options(c-api-demo PRIVATE "-DQRMI_ROOT=${QRMI_ROOT}")
