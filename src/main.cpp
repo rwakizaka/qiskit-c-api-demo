@@ -238,7 +238,7 @@ int main(int argc, char *argv[])
         }
 
         const int iter_num = 5;
-        for (int i_recovery = 0; i_recovery < iter_num; ++i_recovery) {
+        for (int i_closed_loop = 0; i_closed_loop < iter_num; ++i_closed_loop) {
             // Measurement results: (bitstring -> counts). Produced on rank 0, then
             // array-ified later.
             std::unordered_map<std::string, uint64_t> counts;
@@ -429,6 +429,8 @@ int main(int argc, char *argv[])
                     latest_occupancies[1][j] = occs_batch[2 * j + 1]; // beta orbital
                 }
             }
+
+            std::cout << "Finished closed loop iter = " << i_closed_loop << std::endl;
         }
 
         // Synchronize and tear down MPI. No MPI calls are allowed beyond this point.
