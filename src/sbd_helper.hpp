@@ -33,61 +33,28 @@
 #include "sbd/sbd.h"
 
 struct SBD {
-    int task_comm_size = 1;
-    int adet_comm_size = 1;
-    int bdet_comm_size = 1;
-    int h_comm_size = 1;
+    sbd::tpb::SBD inner;
 
-    int max_it = 1;
-    int max_nb = 10;
-    double eps = 1.0e-12;
-    double max_time = 600.0;
     int init = 0;
-
-    double threshold = 0.0;
 
     // This default value is for the Fe4S4
     double energy_target = -326.6;
     double energy_variance = 1.0;
 
     std::string adetfile = "AlphaDets.bin";
-    std::string fcidumpfile = "";
+    std::string bdetfile;
+    std::string fcidump_file = "";
 };
 
 SBD generate_sbd_data(int argc, char *argv[])
 {
     SBD sbd;
+
+    sbd.inner = sbd::tpb::generate_sbd_data(argc, argv);
+
     for (int i = 1; i < argc; i++) {
         if (std::string(argv[i]) == "--fcidump") {
-            sbd.fcidumpfile = std::string(argv[i + 1]);
-            i++;
-        }
-        if (std::string(argv[i]) == "--iteration") {
-            sbd.max_it = std::atoi(argv[i + 1]);
-            i++;
-        }
-        if (std::string(argv[i]) == "--block") {
-            sbd.max_nb = std::atoi(argv[i + 1]);
-            i++;
-        }
-        if (std::string(argv[i]) == "--tolerance") {
-            sbd.eps = std::atof(argv[i + 1]);
-            i++;
-        }
-        if (std::string(argv[i]) == "--max_time") {
-            sbd.max_time = std::atof(argv[i + 1]);
-            i++;
-        }
-        if (std::string(argv[i]) == "--adet_comm_size") {
-            sbd.adet_comm_size = std::atoi(argv[i + 1]);
-            i++;
-        }
-        if (std::string(argv[i]) == "--bdet_comm_size") {
-            sbd.bdet_comm_size = std::atoi(argv[i + 1]);
-            i++;
-        }
-        if (std::string(argv[i]) == "--task_comm_size") {
-            sbd.task_comm_size = std::atoi(argv[i + 1]);
+            sbd.fcidump_file = std::string(argv[i + 1]);
             i++;
         }
         if (std::string(argv[i]) == "--energy_target") {
