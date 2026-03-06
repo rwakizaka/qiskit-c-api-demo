@@ -237,6 +237,13 @@ int main(int argc, char *argv[])
                            std::to_string(init_params.size())});
         }
 
+        // get backend from Quantum Runtime Service
+        // set 2 environment variables before executing
+        // QISKIT_IBM_TOKEN = "your API key"
+        // QISKIT_IBM_INSTANCE = "your CRN"
+        std::string backend_name = sqd_data.backend_name;
+        auto service = QiskitRuntimeService();
+        auto backend = service.backend(backend_name);
         const int iter_num = 5;
         for (int i_closed_loop = 0; i_closed_loop < iter_num; ++i_closed_loop) {
             // Measurement results: (bitstring -> counts). Produced on rank 0, then
@@ -322,14 +329,6 @@ int main(int argc, char *argv[])
                 for (size_t i = 0; i < circ.num_qubits(); ++i) {
                     circ.measure(i, i);
                 }
-
-                // get backend from Quantum Runtime Service
-                // set 2 environment variables before executing
-                // QISKIT_IBM_TOKEN = "your API key"
-                // QISKIT_IBM_INSTANCE = "your CRN"
-                std::string backend_name = sqd_data.backend_name;
-                auto service = QiskitRuntimeService();
-                auto backend = service.backend(backend_name);
 
                 // Transpile a quantum circuit for the target backend.
                 auto transpiled = transpile(circ, backend);
