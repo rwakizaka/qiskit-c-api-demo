@@ -43,9 +43,6 @@
 [submodule "deps/boost/mp11"]
 	path = deps/boost/mp11
 	url = https://github.com/boostorg/mp11.git
-[submodule "deps/boost/dynamic_bitset"]
-	path = deps/boost/dynamic_bitset
-	url = https://github.com/boostorg/dynamic_bitset.git
 [submodule "deps/boost/container_hash"]
 	path = deps/boost/container_hash
 	url = https://github.com/boostorg/container_hash.git
