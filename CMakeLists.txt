@@ -56,14 +56,14 @@ if(SQC_ROOT)
     ${SQC_ROOT}/include
     # nlohmann_json::nlohmann_json
   )
-  target_link_directories(qiskit_cpp INTERFACE
-    ${SQC_ROOT}/lib
-    ${SQC_ROOT}/lib64
-  )
-  target_link_libraries(qiskit_cpp INTERFACE
-    "-Wl,-rpath ${SQC_ROOT}/lib -Wl,-rpath ${SQC_ROOT}/lib64" # dll
-    $ENV{SQC_LIBS}
-  )
+  #target_link_directories(qiskit_cpp INTERFACE
+  #  ${SQC_ROOT}/lib
+  #  ${SQC_ROOT}/lib64
+  #)
+  #target_link_libraries(qiskit_cpp INTERFACE
+  #  "-Wl,-rpath ${SQC_ROOT}/lib -Wl,-rpath ${SQC_ROOT}/lib64" # dll
+  #  $ENV{SQC_LIBS}
+  #)
 else()
   target_include_directories(qiskit_cpp INTERFACE
       ${CMAKE_CURRENT_SOURCE_DIR}/deps/qiskit-cpp/src
@@ -169,11 +169,11 @@ else()
         -lopenblas
     )
     if(SQC_ROOT)
-      target_link_directories(qiskit_cpp INTERFACE
+      target_link_directories(c-api-demo INTERFACE
         ${SQC_ROOT}/lib
         ${SQC_ROOT}/lib64
       )
-      target_link_libraries(qiskit_cpp INTERFACE
+      target_link_libraries(c-api-demo INTERFACE
         "-Wl,-rpath ${SQC_ROOT}/lib -Wl,-rpath ${SQC_ROOT}/lib64" # dll
         $ENV{SQC_LIBS}
       )
