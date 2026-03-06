@@ -50,11 +50,27 @@ FetchContent_MakeAvailable(json)
 
 # qiskit library
 add_library(qiskit_cpp INTERFACE)
-target_include_directories(qiskit_cpp INTERFACE
+if(SQC_ROOT)
+  target_include_directories(qiskit_cpp INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/deps/qiskit-cpp/src
-    ${QRMI_ROOT}
+    ${SQC_ROOT}
     # nlohmann_json::nlohmann_json
-)
+  )
+  target_link_directories(qiskit_cpp INTERFACE
+    ${SQC_ROOT}/lib
+    ${SQC_ROOT}/lib64
+  )
+  target_link_libraries(qiskit_cpp INTERFACE
+    "-Wl,-rpath ${SQC_ROOT}/lib -Wl,-rpath ${SQC_ROOT}/lib64" # dll
+    $ENV{SQC_LIBS}
+  )
+else()
+  target_include_directories(qiskit_cpp INTERFACE
+      ${CMAKE_CURRENT_SOURCE_DIR}/deps/qiskit-cpp/src
+      ${QRMI_ROOT}
+      # nlohmann_json::nlohmann_json
+  )
+endif()
 
 # ffsim library
 # file(GLOB_RECURSE FFSIM_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/ffsim/src/*.cpp)
@@ -138,11 +154,11 @@ elseif(APPLE)
         ${ACCELERATE_LIBRARY}
     )
 else()
+    target_link_directories(c-api-demo PUBLIC ${QISKIT_ROOT}/dist/c/lib)
     target_link_libraries(c-api-demo
       PUBLIC
-        "-L${QISKIT_ROOT}/dist/c/lib -L${QRMI_ROOT}/target/release -Wl,-rpath ${QISKIT_ROOT}/dist/c/lib -Wl,-rpath ${QRMI_ROOT}/target/release"
+      #" -Wl,-rpath ${QISKIT_ROOT}/dist/c/lib -Wl,-rpath ${QRMI_ROOT}/target/release"
         qiskit
-        qrmi
         ffsim
         sqd-addon
         boost_dynamic_bitset
@@ -152,12 +168,16 @@ else()
         nlohmann_json::nlohmann_json
         -lopenblas
     )
+    if(NOT SQC_ROOT)
+      target_link_directories(c-api-demo PUBLIC ${QRMI_ROOT}/target/release)
+      target_link_libraries(c-api-demo PUBLIC qrmi)
+    endif()
 endif()
 
 target_include_directories(c-api-demo
     PRIVATE
         ${QISKIT_ROOT}/dist/c/include
-        ${QRMI_ROOT}
+        #${QRMI_ROOT}
         ${QISKIT_CPP_ROOT}/src
 )
 target_compile_options(c-api-demo PRIVATE "-DQRMI_ROOT=${QRMI_ROOT}")
