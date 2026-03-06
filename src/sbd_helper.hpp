@@ -106,189 +106,148 @@ SBD generate_sbd_data(int argc, char *argv[])
 std::tuple<double, std::vector<double>>
 sbd_main(const MPI_Comm &comm, const SBD &sbd_data)
 {
-
-    double E = 0.0;
-
-    int mpi_master = 0;
-    int mpi_rank;
+    const int master_rank = 0;
+    int mpi_rank, mpi_size;
     MPI_Comm_rank(comm, &mpi_rank);
-    int mpi_size;
     MPI_Comm_size(comm, &mpi_size);
-    int task_comm_size = sbd_data.task_comm_size;
-    int adet_comm_size = sbd_data.adet_comm_size;
-    int bdet_comm_size = sbd_data.bdet_comm_size;
-    int base_comm_size;
-    int L;
-    int N;
 
-    int max_it = sbd_data.max_it;
-    int max_nb = sbd_data.max_nb;
-    double eps = sbd_data.eps;
-    double max_time = sbd_data.max_time;
-    int init = sbd_data.init;
-
-    double energy_target = sbd_data.energy_target;
-    double energy_variance = sbd_data.energy_variance;
-
-    size_t bit_length = SBD_BIT_LENGTH;
-    std::string adetfile = sbd_data.adetfile;
-    std::string fcidumpfile = sbd_data.fcidumpfile;
-
-    base_comm_size = adet_comm_size * bdet_comm_size * task_comm_size;
-    int h_comm_size = mpi_size / base_comm_size;
-
-    if (mpi_size != base_comm_size * h_comm_size) {
-        throw std::invalid_argument("communicator size is not appropriate");
+    if (mpi_rank == master_rank) {
+        if (sbd_data.adetfile.empty()) {
+            throw std::runtime_error("adetfile is not set.");
+        }
+        if (sbd_data.bdetfile.empty()) {
+            throw std::runtime_error("bdetfile is not set.");
+        }
     }
 
-    /**
-       Loading problem (fcidump)
+    /* ========================================================================
+     * Loading problem (fcidump)
      */
 
     sbd::FCIDump fcidump;
-    if (mpi_rank == 0) {
-        fcidump = sbd::LoadFCIDump(fcidumpfile);
+    if (mpi_rank == master_rank) {
+        fcidump = sbd::LoadFCIDump(sbd_data.fcidump_file);
     }
-    sbd::MpiBcast(fcidump, 0, comm);
-    double I0;
-    sbd::oneInt<double> I1;
-    sbd::twoInt<double> I2;
-    sbd::SetupIntegrals(fcidump, L, N, I0, I1, I2);
+    sbd::MpiBcast(fcidump, master_rank, comm);
 
-    /**
-       Preparation of dets
+    int L; // Number of orbitals
+    int N; // Number of electrons
+    for (const auto &[key, value] : fcidump.header) {
+        if (key == std::string("NORB")) {
+            L = std::atoi(value.c_str());
+        }
+        if (key == std::string("NELEC")) {
+            N = std::atoi(value.c_str());
+        }
+    }
+
+    /* ========================================================================
+     * Setup determinants for alpha and beta spin orbitals
      */
-
-    std::vector<std::vector<size_t>> adet;
-    std::vector<std::vector<size_t>> bdet;
-
-    if (mpi_rank == 0) {
-        adet = sbd::DecodeAlphaDets(adetfile, L);
-        sbd::change_bitlength(1, adet, bit_length);
+    std::vector<std::vector<size_t>> adet, bdet;
+    if (mpi_rank == master_rank) {
+        sbd::LoadAlphaDets(sbd_data.adetfile, adet, sbd_data.inner.bit_length, L);
         sbd::sort_bitarray(adet);
+        sbd::LoadAlphaDets(sbd_data.bdetfile, bdet, sbd_data.inner.bit_length, L);
+        sbd::sort_bitarray(bdet);
     }
-
-    sbd::MpiBcast(adet, 0, comm);
-    bdet = adet;
-
-    /**
-       Setup helpers
-     */
-    std::vector<sbd::TaskHelpers> helper;
-    std::vector<std::vector<size_t>> sharedMemory;
-    MPI_Comm h_comm;
-    MPI_Comm b_comm;
-    MPI_Comm t_comm;
-    sbd::TaskCommunicator(
-        comm, h_comm_size, adet_comm_size, bdet_comm_size, task_comm_size, h_comm,
-        b_comm, t_comm
-    );
-
-    sbd::MakeHelpers(
-        adet, bdet, bit_length, L, helper, sharedMemory, h_comm, b_comm, t_comm,
-        adet_comm_size, bdet_comm_size
-    );
-    sbd::RemakeHelpers(
-        adet, bdet, bit_length, L, helper, sharedMemory, h_comm, b_comm, t_comm,
-        adet_comm_size, bdet_comm_size
-    );
-
-    int mpi_rank_h;
-    MPI_Comm_rank(h_comm, &mpi_rank_h);
-    int mpi_rank_b;
-    MPI_Comm_rank(b_comm, &mpi_rank_b);
-    int mpi_rank_t;
-    MPI_Comm_rank(t_comm, &mpi_rank_t);
-    int mpi_size_t;
-    MPI_Comm_size(t_comm, &mpi_size_t);
-    int mpi_size_b;
-    MPI_Comm_size(b_comm, &mpi_size_b);
-    int mpi_size_h;
-    MPI_Comm_size(h_comm, &mpi_size_h);
-
-    /**
-       Initialize/Load wave function
-     */
-    std::vector<double> W;
-    sbd::BasisInitVector(
-        W, adet, bdet, adet_comm_size, bdet_comm_size, h_comm, b_comm, t_comm, init
-    );
-    /**
-       Diagonalization
-     */
-    std::vector<double> hii;
-    auto time_start_diag = std::chrono::high_resolution_clock::now();
-    sbd::makeQChamDiagTerms(
-        adet, bdet, bit_length, L, helper, I0, I1, I2, hii, h_comm, b_comm, t_comm
-    );
-    sbd::Davidson(
-        hii, W, adet, bdet, bit_length, static_cast<size_t>(L), adet_comm_size,
-        bdet_comm_size, helper, I0, I1, I2, h_comm, b_comm, t_comm, max_it, max_nb, eps,
-        max_time
-    );
-    auto time_end_diag = std::chrono::high_resolution_clock::now();
-    auto elapsed_diag_count = std::chrono::duration_cast<std::chrono::microseconds>(
-                                  time_end_diag - time_start_diag
-    )
-                                  .count();
-    double elapsed_diag = 0.000001 * static_cast<double>(elapsed_diag_count);
-    if (mpi_rank == 0)
-        std::cout << " Elapsed time for diagonalization " << elapsed_diag << " (sec) "
-                  << std::endl;
-
-    /**
-         Evaluation of Hamiltonian expectation value
-    */
-
-    std::vector<double> C(W.size(), 0.0);
-
-    sbd::mult(
-        hii, W, C, adet, bdet, bit_length, static_cast<size_t>(L), adet_comm_size,
-        bdet_comm_size, helper, I0, I1, I2, h_comm, b_comm, t_comm
-    );
-
-    sbd::InnerProduct(W, C, E, b_comm);
-
-    if (energy_target != 0.0 && std::abs(E - energy_target) > energy_variance) {
-        E = 0.0;
+    if (sbd_data.inner.do_shuffle != 0) {
+        if (mpi_rank == master_rank) {
+            unsigned int taxi = 1729;
+            unsigned int magic = 137;
+            sbd::ShuffleDet(adet, taxi);
+            sbd::ShuffleDet(bdet, magic);
+        }
     }
-    if (mpi_rank == 0) {
-        std::cout.precision(16);
-        std::cout << " Energy = " << E << std::endl;
-    }
+    sbd::MpiBcast(adet, master_rank, comm);
+    sbd::MpiBcast(bdet, master_rank, comm);
 
-    /**
-       Evaluation of single-particle occupation density
+    /* ========================================================================
+     * Sample-based diagonalization using data for fcidump, adet, bdet.
      */
-    int p_size = mpi_size_t * mpi_size_h;
-    int p_rank = mpi_rank_h * mpi_size_t + mpi_rank_t;
-    size_t o_start = 0;
-    size_t o_end = L;
-    sbd::get_mpi_range(p_size, p_rank, o_start, o_end);
-    size_t o_size = o_end - o_start;
-    std::vector<int> oIdx(o_size);
-    std::iota(oIdx.begin(), oIdx.end(), o_start);
-    std::vector<double> res_density;
-    sbd::OccupationDensity(
-        oIdx, W, adet, bdet, bit_length, adet_comm_size, bdet_comm_size, b_comm,
-        res_density
-    );
-    std::vector<double> density_rank(static_cast<size_t>(2 * L), 0.0);
-    std::vector<double> density_group(static_cast<size_t>(2 * L), 0.0);
-    std::vector<double> density(static_cast<size_t>(2 * L), 0.0);
-    for (size_t io = o_start; io < o_end; io++) {
-        density_rank[2 * io] = res_density[2 * (io - o_start)];
-        density_rank[2 * io + 1] = res_density[2 * (io - o_start) + 1];
-    }
-    MPI_Allreduce(
-        density_rank.data(), density_group.data(), 2 * L, MPI_DOUBLE, MPI_SUM, t_comm
-    );
-    MPI_Allreduce(
-        density_group.data(), density.data(), 2 * L, MPI_DOUBLE, MPI_SUM, h_comm
+    const std::string loadname = "";
+    const std::string savename = "";
+    double energy;
+    std::vector<double> density;
+    std::vector<std::vector<size_t>> co_adet;
+    std::vector<std::vector<size_t>> co_bdet;
+    std::vector<std::vector<double>> one_p_rdm, two_p_rdm;
+    sbd::tpb::diag(
+        comm, sbd_data.inner, fcidump, adet, bdet, loadname, savename, energy, density,
+        co_adet, co_bdet, one_p_rdm, two_p_rdm
     );
 
-    FreeHelpers(helper);
-    return {E, density};
+    // if (mpi_rank == master_rank) {
+    //     if (one_p_rdm.size() != 0) {
+    //         std::cout << " Start calculating 1pRDM and 2pRDM." << std::endl;
+
+    //        double onebody = 0.0;
+    //        double twobody = 0.0;
+    //        double I0;
+    //        sbd::oneInt<double> I1;
+    //        sbd::twoInt<double> I2;
+    //        sbd::SetupIntegrals(fcidump, L, N, I0, I1, I2);
+
+    //        std::ofstream ofs_one(sbd_data.output_dir / sbd_data.one_RDM_file);
+    //        ofs_one.precision(16);
+    //        for (int io = 0; io < L; io++) {
+    //            for (int jo = 0; jo < L; jo++) {
+    //                ofs_one << io << " " << jo << " "
+    //                        << one_p_rdm[0][io + L * jo] + one_p_rdm[1][io + L * jo]
+    //                        << std::endl;
+    //                onebody += I1.Value(2 * io, 2 * jo) *
+    //                           (one_p_rdm[0][io + L * jo] + one_p_rdm[1][io + L *
+    //                           jo]);
+    //            }
+    //        }
+
+    //        std::ofstream ofs_two(sbd_data.output_dir / sbd_data.two_RDM_file);
+    //        ofs_two.precision(16);
+    //        for (int io = 0; io < L; io++) {
+    //            for (int jo = 0; jo < L; jo++) {
+    //                for (int ia = 0; ia < L; ia++) {
+    //                    for (int ja = 0; ja < L; ja++) {
+    //                        ofs_two
+    //                            << io << " " << jo << " " << ia << " " << ja << " "
+    //                            << two_p_rdm[0][io + L * jo + L * L * (ia + L * ja)] +
+    //                                   two_p_rdm[1]
+    //                                            [io + L * jo + L * L * (ia + L * ja)]
+    //                                            +
+    //                                   two_p_rdm[2]
+    //                                            [io + L * jo + L * L * (ia + L * ja)]
+    //                                            +
+    //                                   two_p_rdm[3][io + L * jo + L * L * (ia + L *
+    //                                   ja)]
+    //                            << std::endl;
+    //                        twobody +=
+    //                            0.5 * I2.Value(2 * io, 2 * ia, 2 * jo, 2 * ja) *
+    //                            two_p_rdm[0][io + L * jo + L * L * ia + L * L * L *
+    //                            ja];
+    //                        twobody +=
+    //                            0.5 * I2.Value(2 * io, 2 * ia, 2 * jo, 2 * ja) *
+    //                            two_p_rdm[1][io + L * jo + L * L * ia + L * L * L *
+    //                            ja];
+    //                        twobody +=
+    //                            0.5 * I2.Value(2 * io, 2 * ia, 2 * jo, 2 * ja) *
+    //                            two_p_rdm[2][io + L * jo + L * L * ia + L * L * L *
+    //                            ja];
+    //                        twobody +=
+    //                            0.5 * I2.Value(2 * io, 2 * ia, 2 * jo, 2 * ja) *
+    //                            two_p_rdm[3][io + L * jo + L * L * ia + L * L * L *
+    //                            ja];
+    //                    }
+    //                }
+    //            }
+    //        }
+
+    //        std::cout << " One-Body energy = " << onebody << std::endl;
+    //        std::cout << " Two-Body energy = " << twobody << std::endl;
+    //        std::cout << " One-Body + Two-Body energy = " << onebody + twobody
+    //                  << std::endl;
+    //    }
+    //}
+
+    return {energy, density};
 }
 
 #endif
