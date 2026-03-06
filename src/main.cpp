@@ -237,188 +237,197 @@ int main(int argc, char *argv[])
                            std::to_string(init_params.size())});
         }
 
-        // Measurement results: (bitstring -> counts). Produced on rank 0, then
-        // array-ified later.
-        std::unordered_map<std::string, uint64_t> counts;
+        const int iter_num = 5;
+        for (int i_recovery = 0; i_recovery < iter_num; ++i_recovery) {
+            // Measurement results: (bitstring -> counts). Produced on rank 0, then
+            // array-ified later.
+            std::unordered_map<std::string, uint64_t> counts;
 
-        auto num_elec_a = nelec.first;
-        auto num_elec_b = nelec.second;
-        if (sqd_data.mpi_rank == 0) {
+            auto num_elec_a = nelec.first;
+            auto num_elec_b = nelec.second;
+            if (sqd_data.mpi_rank == 0) {
 // ===== Sampling mode switch =====
 // a) Mock: generate_counts_uniform (debugging)
 // b) Real: build LUCJ circuit -> transpile -> run on backend with Sampler -> get counts
 #if USE_RANDOM_SHOTS != 0
-            counts = generate_counts_uniform(sqd_data.num_shots, 2 * norb, 1234);
+                counts = generate_counts_uniform(sqd_data.num_shots, 2 * norb, 1234);
 #else
-            //////////////// LUCJ Circuit Generation ////////////////
-            size_t params_size = init_params.size();
+                //////////////// LUCJ Circuit Generation ////////////////
+                size_t params_size = init_params.size();
 
-            Eigen::VectorXcd params(params_size);
-            for (size_t i = 0; i < params_size; ++i) {
-                params(static_cast<Eigen::Index>(i)) = init_params[i];
-            }
-            std::optional<MatrixXcd> t1 = std::nullopt;
-            // 'interaction_pairs' allows passing (alpha-alpha, alpha-beta/beta-beta)
-            // coupling patterns.
-            std::array<std::optional<std::vector<std::pair<uint64_t, uint64_t>>>, 2>
-                interaction_pairs = {
-                    std::make_optional<std::vector<std::pair<uint64_t, uint64_t>>>(
-                        interaction_aa
-                    ),
-                    std::make_optional<std::vector<std::pair<uint64_t, uint64_t>>>(
-                        interaction_ab
-                    )
-                };
-
-            // Construct the spin-balanced UCJ operator from parameter vector.
-
-            UCJOpSpinBalanced ucj_op = UCJOpSpinBalanced::from_parameters(
-                params, norb, n_reps, interaction_pairs, true
-            );
-            std::vector<uint32_t> qubits(2 * norb);
-            std::iota(qubits.begin(), qubits.end(), 0);
-            auto instructions = hf_and_ucj_op_spin_balanced_jw(qubits, nelec, ucj_op);
-
-            // Quantum circuit with Qiskit C++
-            auto qr = QuantumRegister(2 * norb);   // quantum registers
-            auto cr = ClassicalRegister(2 * norb); // classical registers
-            auto circ =
-                QuantumCircuit(qr, cr); // create a quantum circuits with registers
-
-            // add gates from instruction list from hf_and_ucj_op_spin_balanced_jw
-            //   for demo: calling Qiskit C++ circuit functions to make quantum circuit
-            for (const auto &instr : instructions) {
-                if (std::string("x") == instr.gate) {
-                    // X gate
-                    circ.x(instr.qubits[0]);
-                } else if (std::string("rz") == instr.gate) {
-                    // RZ gate
-                    circ.rz(instr.params[0], instr.qubits[0]);
-                } else if (std::string("cp") == instr.gate) {
-                    // controlled phase gate
-                    circ.cp(instr.params[0], instr.qubits[0], instr.qubits[1]);
-                } else if (std::string("xx_plus_yy") == instr.gate) {
-                    // XX_plus_YY gate
-                    circ.xx_plus_yy(
-                        instr.params[0], instr.params[1], instr.qubits[0],
-                        instr.qubits[1]
-                    );
+                Eigen::VectorXcd params(params_size);
+                for (size_t i = 0; i < params_size; ++i) {
+                    params(static_cast<Eigen::Index>(i)) = init_params[i];
                 }
-            }
-            // this is smarter way using standard gate mapping to convert gate name to
-            // op auto map = get_standard_gate_name_mapping(); for (const auto &instr :
-            // instructions) {
-            //    auto op = map[instr.gate];
-            //    if (instr.params.size() > 0)
-            //         op.set_params(instr.params);
-            //    circ.append(op, instr.qubits);
-            // }
+                std::optional<MatrixXcd> t1 = std::nullopt;
+                // 'interaction_pairs' allows passing (alpha-alpha,
+                // alpha-beta/beta-beta) coupling patterns.
+                std::array<std::optional<std::vector<std::pair<uint64_t, uint64_t>>>, 2>
+                    interaction_pairs = {
+                        std::make_optional<std::vector<std::pair<uint64_t, uint64_t>>>(
+                            interaction_aa
+                        ),
+                        std::make_optional<std::vector<std::pair<uint64_t, uint64_t>>>(
+                            interaction_ab
+                        )
+                    };
 
-            // sampling all the qubits
-            for (size_t i = 0; i < circ.num_qubits(); ++i) {
-                circ.measure(i, i);
-            }
+                // Construct the spin-balanced UCJ operator from parameter vector.
 
-            // get backend from Quantum Runtime Service
-            // set 2 environment variables before executing
-            // QISKIT_IBM_TOKEN = "your API key"
-            // QISKIT_IBM_INSTANCE = "your CRN"
-            std::string backend_name = sqd_data.backend_name;
-            auto service = QiskitRuntimeService();
-            auto backend = service.backend(backend_name);
+                UCJOpSpinBalanced ucj_op = UCJOpSpinBalanced::from_parameters(
+                    params, norb, n_reps, interaction_pairs, true
+                );
+                std::vector<uint32_t> qubits(2 * norb);
+                std::iota(qubits.begin(), qubits.end(), 0);
+                auto instructions =
+                    hf_and_ucj_op_spin_balanced_jw(qubits, nelec, ucj_op);
 
-            // Transpile a quantum circuit for the target backend.
-            auto transpiled = transpile(circ, backend);
+                // Quantum circuit with Qiskit C++
+                auto qr = QuantumRegister(2 * norb);   // quantum registers
+                auto cr = ClassicalRegister(2 * norb); // classical registers
+                auto circ =
+                    QuantumCircuit(qr, cr); // create a quantum circuits with registers
 
-            uint64_t num_shots = sqd_data.num_shots;
+                // add gates from instruction list from hf_and_ucj_op_spin_balanced_jw
+                //   for demo: calling Qiskit C++ circuit functions to make quantum
+                //   circuit
+                for (const auto &instr : instructions) {
+                    if (std::string("x") == instr.gate) {
+                        // X gate
+                        circ.x(instr.qubits[0]);
+                    } else if (std::string("rz") == instr.gate) {
+                        // RZ gate
+                        circ.rz(instr.params[0], instr.qubits[0]);
+                    } else if (std::string("cp") == instr.gate) {
+                        // controlled phase gate
+                        circ.cp(instr.params[0], instr.qubits[0], instr.qubits[1]);
+                    } else if (std::string("xx_plus_yy") == instr.gate) {
+                        // XX_plus_YY gate
+                        circ.xx_plus_yy(
+                            instr.params[0], instr.params[1], instr.qubits[0],
+                            instr.qubits[1]
+                        );
+                    }
+                }
+                // this is smarter way using standard gate mapping to convert gate name
+                // to op auto map = get_standard_gate_name_mapping(); for (const auto
+                // &instr : instructions) {
+                //    auto op = map[instr.gate];
+                //    if (instr.params.size() > 0)
+                //         op.set_params(instr.params);
+                //    circ.append(op, instr.qubits);
+                // }
 
-            // Configure the Sampler execution (num_shots from SQD configuration).
-            auto sampler = Sampler(backend, num_shots);
+                // sampling all the qubits
+                for (size_t i = 0; i < circ.num_qubits(); ++i) {
+                    circ.measure(i, i);
+                }
 
-            auto job = sampler.run({SamplerPub(transpiled)});
-            if (job == nullptr)
-                return -1;
-            auto result = job->result();
-            auto pub_result = result[0];
+                // get backend from Quantum Runtime Service
+                // set 2 environment variables before executing
+                // QISKIT_IBM_TOKEN = "your API key"
+                // QISKIT_IBM_INSTANCE = "your CRN"
+                std::string backend_name = sqd_data.backend_name;
+                auto service = QiskitRuntimeService();
+                auto backend = service.backend(backend_name);
 
-            // Extract classical counts from the execution result.
-            // These form the classical distribution for downstream recovery/selection.
-            counts = pub_result.data().get_counts();
+                // Transpile a quantum circuit for the target backend.
+                auto transpiled = transpile(circ, backend);
+
+                uint64_t num_shots = sqd_data.num_shots;
+
+                // Configure the Sampler execution (num_shots from SQD configuration).
+                auto sampler = Sampler(backend, num_shots);
+
+                auto job = sampler.run({SamplerPub(transpiled)});
+                if (job == nullptr)
+                    return -1;
+                auto result = job->result();
+                auto pub_result = result[0];
+
+                // Extract classical counts from the execution result.
+                // These form the classical distribution for downstream
+                // recovery/selection.
+                counts = pub_result.data().get_counts();
 #endif // USE_RANDOM_SHOTS
-        }
-
-        ////// Configuration Recovery, Subsampling, Diagonalization //////
-
-        // Expand counts (map) into (bitstrings[], probs[]).
-        auto [bitstring_matrix_full, probs_arr_full] = counts_to_arrays(counts);
-
-        std::vector<boost::dynamic_bitset<>> bs_mat_tmp;
-        std::vector<double> probs_arr_tmp;
-        std::array<std::vector<double>, 2> latest_occupancies, initial_occupancies;
-        int n_recovery = static_cast<int>(sqd_data.n_recovery);
-
-        try {
-            // Load prior alpha/beta occupancies used as the initial distribution for
-            // recovery.
-            initial_occupancies =
-                load_initial_occupancies("../data/initial_occupancies_fe4s4.json");
-        } catch (const std::invalid_argument &e) {
-            std::cerr << "Error loading initial occupancies: " << e.what() << std::endl;
-            return 1;
-        }
-        // ===== Configuration recovery loop (n_recovery iterations) =====
-        // Each iter: recover_configurations → subsample → SBD
-        // (diagonalize) → update occupancies.
-        for (uint64_t i_recovery = 0; i_recovery < n_recovery; ++i_recovery) {
-            log(sqd_data, {"start recovery: iteration=", std::to_string(i_recovery)});
-
-            // Iteration 0: feed full bitstring/probability sets and seed recovery from
-            // initial occupancies.
-            if (i_recovery == 0) {
-                bs_mat_tmp = bitstring_matrix_full;
-                probs_arr_tmp = probs_arr_full;
-                latest_occupancies = initial_occupancies;
             }
-            if (sqd_data.mpi_rank == 0) {
-                // Recover physically consistent configurations from observed
-                // probabilities
-                // + prior occupancies.
-                auto recovered = Qiskit::addon::sqd::recover_configurations(
-                    bitstring_matrix_full, probs_arr_full, latest_occupancies,
-                    {num_elec_a, num_elec_b}, rc_rng
-                );
-                bs_mat_tmp = std::move(recovered.first);
-                probs_arr_tmp = std::move(recovered.second);
 
-                log(sqd_data, {"Number of recovered bitstrings: ",
-                               std::to_string(bs_mat_tmp.size())});
+            ////// Configuration Recovery, Subsampling, Diagonalization //////
 
-                // Subsample to a single batch of fixed size for SBD, to cap IO/compute
-                // per iteration.
-                std::vector<boost::dynamic_bitset<>> batch;
-                Qiskit::addon::sqd::subsample(
-                    batch, bs_mat_tmp, probs_arr_tmp, samples_per_batch, rng
-                );
-                // Write alpha-determinants file for SBD input (includes run id /
-                // iteration for traceability).
-                diag_data.adetfile = write_alphadets_file(
-                    sqd_data, norb, num_elec_a, batch, sqd_data.samples_per_batch * 2,
-                    i_recovery
-                );
-                diag_data.bdetfile = diag_data.adetfile;
+            // Expand counts (map) into (bitstrings[], probs[]).
+            auto [bitstring_matrix_full, probs_arr_full] = counts_to_arrays(counts);
+
+            std::vector<boost::dynamic_bitset<>> bs_mat_tmp;
+            std::vector<double> probs_arr_tmp;
+            std::array<std::vector<double>, 2> latest_occupancies, initial_occupancies;
+            int n_recovery = static_cast<int>(sqd_data.n_recovery);
+
+            try {
+                // Load prior alpha/beta occupancies used as the initial distribution
+                // for recovery.
+                initial_occupancies =
+                    load_initial_occupancies("../data/initial_occupancies_fe4s4.json");
+            } catch (const std::invalid_argument &e) {
+                std::cerr << "Error loading initial occupancies: " << e.what()
+                          << std::endl;
+                return 1;
             }
-            // Run SBD to get energy and batch occupancies (interleaved alpha/beta...).
-            // Energy goes to logs; occupancies seed the next iteration.
-            auto [energy_sci, occs_batch] = sbd_main(sqd_data.comm, diag_data);
-            log(sqd_data, {"energy: ", std::to_string(energy_sci)});
+            // ===== Configuration recovery loop (n_recovery iterations) =====
+            // Each iter: recover_configurations → subsample → SBD
+            // (diagonalize) → update occupancies.
+            for (uint64_t i_recovery = 0; i_recovery < n_recovery; ++i_recovery) {
+                log(sqd_data,
+                    {"start recovery: iteration=", std::to_string(i_recovery)});
 
-            // Convert interleaved [alpha0, beta0, alpha1, beta1, ...] to { alpha[],
-            // beta[]
-            // }. NOTE: assert ensures occs_batch size matches 2 * alpha.size().
-            assert(2 * latest_occupancies[0].size() == occs_batch.size());
-            for (std::size_t j = 0; j < latest_occupancies[0].size(); ++j) {
-                latest_occupancies[0][j] = occs_batch[2 * j];     // alpha orbital
-                latest_occupancies[1][j] = occs_batch[2 * j + 1]; // beta orbital
+                // Iteration 0: feed full bitstring/probability sets and seed recovery
+                // from initial occupancies.
+                if (i_recovery == 0) {
+                    bs_mat_tmp = bitstring_matrix_full;
+                    probs_arr_tmp = probs_arr_full;
+                    latest_occupancies = initial_occupancies;
+                }
+                if (sqd_data.mpi_rank == 0) {
+                    // Recover physically consistent configurations from observed
+                    // probabilities
+                    // + prior occupancies.
+                    auto recovered = Qiskit::addon::sqd::recover_configurations(
+                        bitstring_matrix_full, probs_arr_full, latest_occupancies,
+                        {num_elec_a, num_elec_b}, rc_rng
+                    );
+                    bs_mat_tmp = std::move(recovered.first);
+                    probs_arr_tmp = std::move(recovered.second);
+
+                    log(sqd_data, {"Number of recovered bitstrings: ",
+                                   std::to_string(bs_mat_tmp.size())});
+
+                    // Subsample to a single batch of fixed size for SBD, to cap
+                    // IO/compute per iteration.
+                    std::vector<boost::dynamic_bitset<>> batch;
+                    Qiskit::addon::sqd::subsample(
+                        batch, bs_mat_tmp, probs_arr_tmp, samples_per_batch, rng
+                    );
+                    // Write alpha-determinants file for SBD input (includes run id /
+                    // iteration for traceability).
+                    diag_data.adetfile = write_alphadets_file(
+                        sqd_data, norb, num_elec_a, batch,
+                        sqd_data.samples_per_batch * 2, i_recovery
+                    );
+                    diag_data.bdetfile = diag_data.adetfile;
+                }
+                // Run SBD to get energy and batch occupancies (interleaved
+                // alpha/beta...). Energy goes to logs; occupancies seed the next
+                // iteration.
+                auto [energy_sci, occs_batch] = sbd_main(sqd_data.comm, diag_data);
+                log(sqd_data, {"energy: ", std::to_string(energy_sci)});
+
+                // Convert interleaved [alpha0, beta0, alpha1, beta1, ...] to { alpha[],
+                // beta[]
+                // }. NOTE: assert ensures occs_batch size matches 2 * alpha.size().
+                assert(2 * latest_occupancies[0].size() == occs_batch.size());
+                for (std::size_t j = 0; j < latest_occupancies[0].size(); ++j) {
+                    latest_occupancies[0][j] = occs_batch[2 * j];     // alpha orbital
+                    latest_occupancies[1][j] = occs_batch[2 * j + 1]; // beta orbital
+                }
             }
         }
 
